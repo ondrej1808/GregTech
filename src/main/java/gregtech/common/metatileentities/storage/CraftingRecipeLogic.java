@@ -18,6 +18,7 @@ import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.common.ForgeHooks;
+import net.minecraftforge.oredict.OreDictionary;
 import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraftforge.items.ItemStackHandler;
 
@@ -41,6 +42,8 @@ public class CraftingRecipeLogic {
     private int itemsCrafted = 0;
     public static short ALL_INGREDIENTS_PRESENT = 511;
     private short tintLocation = ALL_INGREDIENTS_PRESENT;
+    /** ticks since the last forced recipe re-check (see {@link #update()}) */
+    private int recheckTimer = 0;
 
     public CraftingRecipeLogic(ICraftingStorage craftingStorage) {
         this.world = craftingStorage.getWorld();
@@ -70,35 +73,51 @@ public class CraftingRecipeLogic {
         fillCraftingGrid(Collections.emptyMap());
     }
 
+    /**
+     * Fills the ghost crafting grid (JEI transfer / clear button).
+     *
+     * @param ingredients 1-based grid slot -> stack (slot 0 of a JEI layout is the output)
+     */
     public void fillCraftingGrid(Map<Integer, ItemStack> ingredients) {
         for (int i = 0; i < craftingGrid.getSlots(); i++) {
-            craftingGrid.setStackInSlot(i, ingredients.getOrDefault(i + 1, ItemStack.EMPTY));
+            craftingGrid.setStackInSlot(i, sanitizeGhostStack(ingredients.getOrDefault(i + 1, ItemStack.EMPTY)));
         }
     }
 
+    /**
+     * Patch: JEI may hand over its displayed ingredient with a wildcard damage (32767) or a count > 1;
+     * a wildcard stack does not match meta-specific recipes, so no result was shown.
+     *
+     * @param stack stack from JEI
+     * @return single-item copy with a concrete damage value, or EMPTY
+     */
+    private static ItemStack sanitizeGhostStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
+        ItemStack copy = stack.copy();
+        copy.setCount(1);
+        if (copy.getItemDamage() == OreDictionary.WILDCARD_VALUE) copy.setItemDamage(0);
+        return copy;
+    }
+
+    /**
+     * Compares the ghost grid with the last seen state (stored as COPIES - the old code stored live references,
+     * so in-place changes were never detected) and mirrors changes into {@link #inventoryCrafting}.
+     *
+     * @return {@code true} if any slot changed
+     */
     private boolean hasCraftingGridUpdated() {
         boolean craftingGridChanged = false;
         for (int i = 0; i < craftingGrid.getSlots(); i++) {
-            ItemStack oldStack = oldCraftingGrid[i];
+            ItemStack oldStack = oldCraftingGrid[i] == null ? ItemStack.EMPTY : oldCraftingGrid[i];
             ItemStack newStack = craftingGrid.getStackInSlot(i);
-            if (oldStack == null || oldStack.isEmpty()) {
-                if (newStack.isEmpty()) {
-                    continue;
-                }
-                oldStack = newStack;
-                oldCraftingGrid[i] = oldStack;
-                inventoryCrafting.setInventorySlotContents(i, newStack.copy());
-                craftingGridChanged = true;
-            } else if (newStack.isEmpty()) {
-                oldCraftingGrid[i] = null;
-                inventoryCrafting.setInventorySlotContents(i, ItemStack.EMPTY);
-                craftingGridChanged = true;
-            } else if (!ItemStack.areItemsEqual(oldStack, newStack) ||
+            if (oldStack.isEmpty() && newStack.isEmpty()) continue;
+            if (oldStack.isEmpty() != newStack.isEmpty() ||
+                    !ItemStack.areItemsEqual(oldStack, newStack) ||
                     !ItemStack.areItemStackTagsEqual(oldStack, newStack)) {
-                        oldCraftingGrid[i] = newStack;
-                        inventoryCrafting.setInventorySlotContents(i, newStack.copy());
-                        craftingGridChanged = true;
-                    }
+                oldCraftingGrid[i] = newStack.isEmpty() ? null : newStack.copy();
+                inventoryCrafting.setInventorySlotContents(i, newStack.isEmpty() ? ItemStack.EMPTY : newStack.copy());
+                craftingGridChanged = true;
+            }
         }
         return craftingGridChanged;
     }
@@ -169,21 +188,26 @@ public class CraftingRecipeLogic {
                 cachedRecipeData.attemptMatchRecipe() == ALL_INGREDIENTS_PRESENT;
     }
 
+    /**
+     * Re-resolves the recipe and result for the current grid. Patch: always looks the recipe up again
+     * (the old "cached recipe still matches and gives the same result" shortcut kept stale results, GT #2285)
+     * and resets the remembered result when there is no recipe.
+     */
     private void updateCurrentRecipe() {
-        if (!cachedRecipeData.matches(inventoryCrafting, world) ||
-                !ItemStack.areItemStacksEqual(oldResult, cachedRecipe.getCraftingResult(inventoryCrafting))) {
-            IRecipe newRecipe = CraftingManager.findMatchingRecipe(inventoryCrafting, world);
-            this.cachedRecipe = newRecipe;
-            ItemStack resultStack = ItemStack.EMPTY;
-            if (newRecipe != null) {
-                resultStack = newRecipe.getCraftingResult(inventoryCrafting);
-                oldResult = resultStack.copy();
-            }
-            this.craftingResultInventory.setInventorySlotContents(0, resultStack);
+        IRecipe newRecipe = CraftingManager.findMatchingRecipe(inventoryCrafting, world);
+        this.cachedRecipe = newRecipe;
+        ItemStack resultStack = newRecipe == null ? ItemStack.EMPTY : newRecipe.getCraftingResult(inventoryCrafting);
+        this.oldResult = resultStack.copy();
+        this.craftingResultInventory.setInventorySlotContents(0, resultStack);
+        if (this.cachedRecipeData.getRecipe() != newRecipe) {
             this.cachedRecipeData.setRecipe(newRecipe);
         }
     }
 
+    /**
+     * Server tick: refreshes item sources and tinting, and the recipe when the grid changed. Additionally
+     * re-checks once per second if the grid has items but the output is empty (safety net for missed updates).
+     */
     public void update() {
         // update item sources every tick for fast tinting updates
         itemSources.update();
@@ -194,6 +218,12 @@ public class CraftingRecipeLogic {
         }
         if (hasCraftingGridUpdated()) {
             updateCurrentRecipe();
+            recheckTimer = 0;
+        } else if (++recheckTimer >= 20) {
+            recheckTimer = 0;
+            if (craftingResultInventory.getStackInSlot(0).isEmpty() && !inventoryCrafting.isEmpty()) {
+                updateCurrentRecipe();
+            }
         }
     }
 

@@ -190,11 +190,17 @@ public class MetaTileEntityWorkbench extends MetaTileEntity implements ICrafting
 
     private AbstractWidgetGroup createItemListTab() {
         WidgetGroup widgetGroup = new WidgetGroup();
-        widgetGroup.addWidget(new LabelWidget(5, 20, "gregtech.machine.workbench.storage_note_1"));
-        widgetGroup.addWidget(new LabelWidget(5, 30, "gregtech.machine.workbench.storage_note_2"));
+        widgetGroup.addWidget(new LabelWidget(5, 17, "gregtech.machine.workbench.storage_note_1"));
+        widgetGroup.addWidget(new LabelWidget(5, 25, "gregtech.machine.workbench.storage_note_2"));
         CraftingRecipeLogic recipeResolver = getCraftingRecipeLogic();
         IItemList itemList = recipeResolver == null ? null : recipeResolver.getItemSourceList();
-        widgetGroup.addWidget(new ItemListGridWidget(11, 45, 8, 5, itemList));
+        ItemListGridWidget grid = new ItemListGridWidget(11, 45, 8, 5, itemList);
+        // search bar: client-side filter by name, "@modid" filters by mod
+        widgetGroup.addWidget(new TextFieldWidget(11, 34, 8 * 18 + 10, 10, true, grid::getSearchFilter, null)
+                .setTextResponder(grid::setSearchFilter, true)
+                .setMaxStringLength(64)
+                .setValidator(str -> true));
+        widgetGroup.addWidget(grid);
         return widgetGroup;
     }
 

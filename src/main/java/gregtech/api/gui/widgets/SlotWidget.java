@@ -260,7 +260,7 @@ public class SlotWidget extends Widget implements INativeWidget {
     }
 
     public boolean isEnabled() {
-        return this.isActive() && isVisible();
+        return this.isActive() && isVisible() && isParentEnabled();
     }
 
     @Override

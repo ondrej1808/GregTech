@@ -222,24 +222,51 @@ public class ModularUIGui extends GuiContainer implements IRenderContext {
         });
     }
 
+    /**
+     * Handles raw mouse input. Wheel events are offered to the widgets first; when a widget consumes the
+     * wheel (e.g. a scrollable list), vanilla/other-mod handling is skipped so the scroll can not also
+     * move items in slots under the cursor.
+     *
+     * @throws IOException propagated from {@link GuiContainer#handleMouseInput()}
+     */
     @Override
     public void handleMouseInput() throws IOException {
-        super.handleMouseInput();
-        int wheelMovement = Mouse.getEventDWheel();
-        if (wheelMovement != 0) {
-            int mouseX = Mouse.getEventX() * this.width / this.mc.displayWidth;
-            int mouseY = this.height - Mouse.getEventY() * this.height / this.mc.displayHeight - 1;
-            mouseWheelMove(mouseX, mouseY, wheelMovement);
+        if (Mouse.getEventDWheel() != 0 && dispatchMouseWheel()) {
+            return;
         }
+        super.handleMouseInput();
     }
 
-    protected void mouseWheelMove(int mouseX, int mouseY, int wheelDelta) {
+    /**
+     * Offers the current LWJGL mouse wheel event to the visible, active widgets of this UI.
+     *
+     * @return {@code true} if a widget consumed the wheel movement, {@code false} if there was no wheel
+     *         movement or nobody handled it
+     */
+    public boolean dispatchMouseWheel() {
+        int wheelMovement = Mouse.getEventDWheel();
+        if (wheelMovement == 0) return false;
+        int mouseX = Mouse.getEventX() * this.width / this.mc.displayWidth;
+        int mouseY = this.height - Mouse.getEventY() * this.height / this.mc.displayHeight - 1;
+        return mouseWheelMove(mouseX, mouseY, wheelMovement);
+    }
+
+    /**
+     * Dispatches a mouse wheel movement to widgets, topmost first.
+     *
+     * @param mouseX     mouse x in GUI coordinates
+     * @param mouseY     mouse y in GUI coordinates
+     * @param wheelDelta raw wheel delta (positive = up)
+     * @return {@code true} if a widget consumed the event
+     */
+    protected boolean mouseWheelMove(int mouseX, int mouseY, int wheelDelta) {
         for (int i = modularUI.guiWidgets.size() - 1; i >= 0; i--) {
             Widget widget = modularUI.guiWidgets.get(i);
             if (widget.isVisible() && widget.isActive() && widget.mouseWheelMove(mouseX, mouseY, wheelDelta)) {
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     public Set<Slot> getDragSplittingSlots() {

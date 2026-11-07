@@ -1,6 +1,7 @@
 package gregtech.client.event;
 
 import gregtech.api.GTValues;
+import gregtech.api.gui.impl.ModularUIGui;
 import gregtech.api.items.armor.ArmorMetaItem;
 import gregtech.api.items.metaitem.MetaItem;
 import gregtech.api.items.metaitem.stats.IItemBehaviour;
@@ -58,6 +59,20 @@ public class ClientEventHandler {
             if (((MetaTileEntityHolder) tileEntity).getMetaTileEntity() instanceof MetaTileEntityMonitorScreen) {
                 event.setCanceled(true);
             }
+        }
+    }
+
+    /**
+     * Lets GregTech GUI widgets (e.g. scrollable lists) consume the mouse wheel before other mods
+     * (Mouse Tweaks wheel-transfer etc.) see it, so scrolling a list never moves items in slots.
+     *
+     * @param event Forge pre mouse-input event for the current screen
+     * @return nothing; cancels the event when a widget consumed the wheel
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onGuiMouseInput(GuiScreenEvent.MouseInputEvent.Pre event) {
+        if (event.getGui() instanceof ModularUIGui && ((ModularUIGui) event.getGui()).dispatchMouseWheel()) {
+            event.setCanceled(true);
         }
     }
 

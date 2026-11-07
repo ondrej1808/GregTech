@@ -95,6 +95,40 @@ public class AbstractWidgetGroup extends Widget implements IGhostIngredientTarge
             return;
         }
         super.setVisible(visible);
+        propagateEnabled();
+    }
+
+    /**
+     * Sets activity and propagates the effective enabled state to children.
+     *
+     * @param active new active state
+     */
+    @Override
+    public void setActive(boolean active) {
+        super.setActive(active);
+        propagateEnabled();
+    }
+
+    /**
+     * Receives the ancestors' enabled state and forwards it to children.
+     *
+     * @param enabled {@code true} if all ancestors are visible and active
+     */
+    @Override
+    public void setParentEnabled(boolean enabled) {
+        super.setParentEnabled(enabled);
+        propagateEnabled();
+    }
+
+    /**
+     * Patch: hiding a group (e.g. an unselected tab) previously left its slot widgets enabled, so the
+     * invisible slots under the cursor still reacted to Mouse Tweaks wheel/clicks. Forward the state.
+     */
+    protected void propagateEnabled() {
+        boolean enabled = isParentEnabled() && isVisible() && isActive();
+        for (Widget widget : widgets) {
+            widget.setParentEnabled(enabled);
+        }
     }
 
     protected void addWidget(Widget widget) {
@@ -105,6 +139,7 @@ public class AbstractWidgetGroup extends Widget implements IGhostIngredientTarge
             throw new IllegalArgumentException("Already added");
         }
         this.widgets.add(widget);
+        widget.setParentEnabled(isParentEnabled() && isVisible() && isActive());
         widget.setUiAccess(groupUIAccess);
         widget.setGui(gui);
         widget.setSizes(sizes);

@@ -13,6 +13,7 @@ import gregtech.common.inventory.SimpleItemInfo;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.PacketBuffer;
+import net.minecraft.util.ResourceLocation;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap;
 import org.jetbrains.annotations.Nullable;
@@ -41,6 +42,9 @@ public class ItemListGridWidget extends ScrollableListWidget {
     private final List<ItemStack> itemsRemoved = new ArrayList<>();
 
     private final List<SimpleItemInfo> displayItemList = new ArrayList<>();
+    /** client-side view of {@link #displayItemList} after applying {@link #searchFilter} */
+    private final List<SimpleItemInfo> filteredItemList = new ArrayList<>();
+    private String searchFilter = "";
 
     public ItemListGridWidget(int x, int y, int slotsX, int slotsY, @Nullable IItemList itemList) {
         super(x, y, slotsX * 18 + 10, slotsY * 18);
@@ -54,9 +58,95 @@ public class ItemListGridWidget extends ScrollableListWidget {
         return itemList;
     }
 
+    /**
+     * Returns the item shown in the given grid cell (after search filtering).
+     *
+     * @param index cell index, row-major from the top-left of the full list
+     * @return item info, or {@code null} for an empty cell
+     */
     @Nullable
     public IItemInfo getItemInfoAt(int index) {
-        return displayItemList.size() > index ? displayItemList.get(index) : null;
+        return filteredItemList.size() > index ? filteredItemList.get(index) : null;
+    }
+
+    /**
+     * Current search text.
+     *
+     * @return search filter, never {@code null}
+     */
+    public String getSearchFilter() {
+        return searchFilter;
+    }
+
+    /**
+     * Sets the search text, re-filters the list and scrolls back to the top.
+     * Matches display name, or mod id when the query starts with {@code @}; case-insensitive.
+     *
+     * @param filter new search text ({@code null} treated as empty)
+     */
+    public void setSearchFilter(String filter) {
+        String newFilter = filter == null ? "" : filter;
+        if (newFilter.equals(searchFilter)) return;
+        this.searchFilter = newFilter;
+        refilter();
+        this.scrollOffset = 0;
+        updateElementPositions();
+    }
+
+    /**
+     * Rebuilds {@link #filteredItemList} from {@link #displayItemList} and the search filter.
+     */
+    private void refilter() {
+        filteredItemList.clear();
+        String query = searchFilter.trim().toLowerCase(Locale.ROOT);
+        if (query.isEmpty()) {
+            filteredItemList.addAll(displayItemList);
+            return;
+        }
+        for (SimpleItemInfo info : displayItemList) {
+            if (matches(info.getItemStack(), query)) filteredItemList.add(info);
+        }
+    }
+
+    /**
+     * Tests one stack against a lower-cased search query.
+     *
+     * @param stack stack to test
+     * @param query lower-cased, trimmed query; a leading {@code @} matches the mod id instead
+     * @return {@code true} if the stack matches
+     */
+    private static boolean matches(ItemStack stack, String query) {
+        if (query.startsWith("@")) {
+            ResourceLocation id = stack.getItem().getRegistryName();
+            return id != null && id.getNamespace().toLowerCase(Locale.ROOT).contains(query.substring(1));
+        }
+        return stack.getDisplayName().toLowerCase(Locale.ROOT).contains(query);
+    }
+
+    /**
+     * Only the rows that contain filtered items (at least one page) are scrollable.
+     *
+     * @return scrollable height in pixels
+     */
+    @Override
+    protected int getScrollableHeight() {
+        int rows = Math.max(slotAmountY, (filteredItemList.size() + slotAmountX - 1) / slotAmountX);
+        return Math.min(totalListHeight, rows * 18);
+    }
+
+    /**
+     * Scrolls one slot row per wheel notch.
+     *
+     * @param mouseX     mouse x
+     * @param mouseY     mouse y
+     * @param wheelDelta raw wheel delta (positive = up)
+     * @return {@code true} if the mouse is over the grid (event consumed)
+     */
+    @Override
+    public boolean mouseWheelMove(int mouseX, int mouseY, int wheelDelta) {
+        if (!isMouseOverElement(mouseX, mouseY)) return false;
+        scrollListBy(-Integer.signum(wheelDelta) * 18);
+        return true;
     }
 
     @Override
@@ -122,7 +212,7 @@ public class ItemListGridWidget extends ScrollableListWidget {
         if (delta > 0) {
             addSlotRows(delta);
         } else {
-            removeSlotRows(delta);
+            removeSlotRows(-delta);
         }
     }
 
@@ -198,6 +288,7 @@ public class ItemListGridWidget extends ScrollableListWidget {
         if (id == 2) {
             int slotsToAdd = buffer.readVarInt();
             modifySlotRows(slotsToAdd);
+            scrollListBy(0);
         }
         if (id == 3) {
             try {
@@ -223,6 +314,7 @@ public class ItemListGridWidget extends ScrollableListWidget {
                     itemInfo.setTotalItemAmount(newTotalAmount);
                 }
                 this.displayItemList.sort(COMPARATOR);
+                refilter();
             } catch (IOException ex) {
                 throw new RuntimeException(ex);
             }

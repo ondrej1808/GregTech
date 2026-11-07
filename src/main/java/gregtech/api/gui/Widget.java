@@ -127,6 +127,27 @@ public abstract class Widget {
         isActive = active;
     }
 
+    /** false when some ancestor group (e.g. an unselected tab) is hidden or inactive */
+    private transient boolean parentEnabled = true;
+
+    /**
+     * Called by the parent group when its own visibility/activity (or one of its ancestors') changes.
+     *
+     * @param enabled {@code true} if all ancestors are visible and active
+     */
+    public void setParentEnabled(boolean enabled) {
+        this.parentEnabled = enabled;
+    }
+
+    /**
+     * Whether all ancestor groups are visible and active.
+     *
+     * @return {@code true} if no ancestor hides/disables this widget
+     */
+    public boolean isParentEnabled() {
+        return parentEnabled;
+    }
+
     public Rectangle toRectangleBox() {
         Position pos = getPosition();
         Size size = getSize();

@@ -41,8 +41,25 @@ public class ScrollableListWidget extends AbstractWidgetGroup {
         return false;
     }
 
-    private void addScrollOffset(int offset) {
-        this.scrollOffset = MathHelper.clamp(scrollOffset + offset, 0, totalListHeight - getSize().height);
+    /**
+     * Height of the content that can be scrolled through. Subclasses may report less than
+     * {@link #totalListHeight} (e.g. when entries are filtered out).
+     *
+     * @return scrollable content height in pixels
+     */
+    protected int getScrollableHeight() {
+        return totalListHeight;
+    }
+
+    /**
+     * Scrolls the list by the given amount, clamped to the scrollable range.
+     *
+     * @param offset scroll delta in pixels (positive = down)
+     * @return nothing; updates child widget positions
+     */
+    protected void scrollListBy(int offset) {
+        int maxOffset = Math.max(0, getScrollableHeight() - getSize().height);
+        this.scrollOffset = MathHelper.clamp(scrollOffset + offset, 0, maxOffset);
         updateElementPositions();
     }
 
@@ -57,7 +74,12 @@ public class ScrollableListWidget extends AbstractWidgetGroup {
         updateElementPositions();
     }
 
-    private void updateElementPositions() {
+    /**
+     * Re-lays out child widgets vertically according to the current scroll offset.
+     *
+     * @return nothing; updates {@link #totalListHeight} and {@link #slotHeight}
+     */
+    protected void updateElementPositions() {
         Position position = getPosition();
         int currentPosY = position.y - scrollOffset;
         int totalListHeight = 0;
@@ -98,8 +120,8 @@ public class ScrollableListWidget extends AbstractWidgetGroup {
         int scrollX = position.x + size.width - paneSize;
         GuiTextures.SLIDER_BACKGROUND_VERTICAL.draw(scrollX + 1, position.y + 1, paneSize - 2, size.height - 2);
 
-        int maxScrollOffset = totalListHeight - getSize().height + 2;
-        float scrollPercent = maxScrollOffset == 0 ? 0 : scrollOffset / (maxScrollOffset * 1.0f);
+        int maxScrollOffset = Math.max(0, getScrollableHeight() - getSize().height);
+        float scrollPercent = maxScrollOffset <= 0 ? 0 : scrollOffset / (maxScrollOffset * 1.0f);
         int scrollSliderHeight = 14;
         int scrollSliderY = Math.round(position.y + (size.height - scrollSliderHeight) * scrollPercent);
         GuiTextures.SLIDER_ICON.draw(scrollX + 1, scrollSliderY + 2, paneSize - 2, scrollSliderHeight);
@@ -143,7 +165,7 @@ public class ScrollableListWidget extends AbstractWidgetGroup {
         if (isMouseOverElement(mouseX, mouseY)) {
             int direction = -MathHelper.clamp(wheelDelta, -1, 1);
             int moveDelta = direction * (slotHeight / 2);
-            addScrollOffset(moveDelta);
+            scrollListBy(moveDelta);
             return true;
         }
         return false;
@@ -168,7 +190,7 @@ public class ScrollableListWidget extends AbstractWidgetGroup {
         this.lastMouseX = mouseX;
         this.lastMouseY = mouseY;
         if (draggedOnScrollBar) {
-            addScrollOffset(mouseDelta);
+            scrollListBy(mouseDelta);
             return true;
         }
         if (isPositionInsideScissor(mouseX, mouseY)) {
